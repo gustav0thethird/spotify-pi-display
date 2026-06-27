@@ -1,0 +1,423 @@
+- name: Setup Spotify Display Pi
+  hosts: raspberrypi
+  become: yes
+
+  tasks:
+
+  # =========================================================
+  # PHASE 1: System packages
+  # =========================================================
+
+  - name: Set hostname to spotifydisplay
+    hostname:
+      name: spotifydisplay
+    tags: config
+
+  - name: Update /etc/hosts with new hostname
+    replace:
+      path: /etc/hosts
+      regexp: '\b{{ ansible_hostname }}\b'
+      replace: spotifydisplay
+    tags: config
+
+
+  - name: Create app directory
+    file:
+      path: "{{ app_dir }}"
+      state: directory
+      owner: "{{ ansible_user }}"
+      group: "{{ ansible_user }}"
+      mode: '0755'
+    tags: [packages, deploy]
+
+  - name: Update apt cache
+    apt:
+      update_cache: yes
+      cache_valid_time: 3600
+    tags: packages
+
+  - name: Install system packages
+    apt:
+      name:
+        - python3-pip
+        - python3-pil
+        - python3-numpy
+        - python3-requests
+        - python3-flask
+        - git
+        - dnsmasq
+        - network-manager
+        - openssl
+        - fonts-dejavu-core
+        - avahi-daemon
+      state: present
+    tags: packages
+
+  # dnsmasq system service conflicts with NM's built-in DHCP for the hotspot
+  # (NM's ipv4.method=shared spawns its own dnsmasq per-interface)
+  - name: Disable system dnsmasq (NM manages its own for hotspot)
+    systemd:
+      name: dnsmasq
+      enabled: no
+      state: stopped
+    ignore_errors: yes
+    tags: packages
+
+  - name: Install Python packages via pip
+    pip:
+      name:
+        - spotipy
+        - "qrcode[pil]"
+      extra_args: --break-system-packages
+    tags: packages
+
+  # =========================================================
+  # PHASE 1.5: Kill Raspberry Pi first-boot wizard
+  # Prevents welcome screen / raspi-config blocking boot
+  # =========================================================
+
+  - name: Mark system as already configured (suppresses Pi welcome wizard)
+    file:
+      path: /etc/.configured
+      state: touch
+    tags: config
+
+  - name: Remove Pi wizard autostart entries
+    file:
+      path: "{{ item }}"
+      state: absent
+    loop:
+      - /etc/xdg/autostart/piwiz.desktop
+      - /etc/xdg/autostart/lxplug-updater.desktop
+    ignore_errors: yes
+    tags: config
+
+  - name: Disable firstboot services
+    systemd:
+      name: "{{ item }}"
+      enabled: no
+      state: stopped
+    loop:
+      - raspi-config
+      - firstboot
+    ignore_errors: yes
+    tags: config
+
+  - name: Mask firstboot services so they cannot be started
+    systemd:
+      name: "{{ item }}"
+      masked: yes
+    loop:
+      - firstboot.service
+      - regenerate_ssh_host_keys.service
+      - userconfig.service
+      - raspi-config.service
+    ignore_errors: yes
+    tags: config
+
+  - name: Clear MOTD and login banner
+    copy:
+      dest: "{{ item }}"
+      content: ""
+    loop:
+      - /etc/motd
+      - /etc/issue
+      - /etc/issue.net
+    ignore_errors: yes
+    tags: config
+
+  - name: Suppress boot messages on console (quiet boot)
+    shell: >
+      grep -q '\bquiet\b' /boot/firmware/cmdline.txt ||
+      sed -i 's/$/ quiet loglevel=1/' /boot/firmware/cmdline.txt
+    tags: config
+
+  - name: Disable getty on tty1 (no login prompt on the physical console)
+    systemd:
+      name: getty@tty1
+      enabled: no
+      state: stopped
+    ignore_errors: yes
+    tags: config
+
+  # =========================================================
+  # PHASE 2: Disable desktop environment
+  # Prevents lightdm/pixel desktop from overriding /dev/fb1
+  # =========================================================
+
+  - name: Disable lightdm display manager
+    systemd:
+      name: lightdm
+      enabled: no
+      state: stopped
+    ignore_errors: yes
+    tags: config
+
+  - name: Set default boot target to console (multi-user)
+    command: systemctl set-default multi-user.target
+    tags: config
+
+  # =========================================================
+  # PHASE 2.5: WiFi keep-alive
+  # =========================================================
+
+  - name: Disable WiFi power management (prevents connection drop after idle)
+    copy:
+      dest: /etc/NetworkManager/conf.d/wifi-powersave-off.conf
+      content: |
+        [connection]
+        wifi.powersave = 2
+    tags: config
+
+  - name: Install WiFi reconnect dispatcher (restarts display service when wlan0 comes back up)
+    copy:
+      dest: /etc/NetworkManager/dispatcher.d/99-spotify-reconnect
+      mode: '0755'
+      content: |
+        #!/bin/sh
+        [ "$1" = "wlan0" ] && [ "$2" = "up" ] && systemctl restart spotify-display
+    tags: config
+
+  # =========================================================
+  # PHASE 3: SPI / TFT display config
+  # =========================================================
+
+  - name: Redirect framebuffer console to fb0 so TFT is exclusively ours
+    shell: >
+      grep -q 'fbcon=map:0' /boot/firmware/cmdline.txt ||
+      sed -i 's/$/ fbcon=map:0/' /boot/firmware/cmdline.txt
+    tags: config
+
+  - name: Enable SPI
+    lineinfile:
+      path: "{{ boot_config }}"
+      line: "dtparam=spi=on"
+    tags: config
+
+  - name: Disable legacy overlays
+    replace:
+      path: "{{ boot_config }}"
+      regexp: 'dtoverlay=(tft35a.*|vc4-kms-v3d.*)'
+      replace: '# \g<0>'
+    tags: config
+
+  - name: Add piscreen overlay
+    blockinfile:
+      path: "{{ boot_config }}"
+      block: |
+        [all]
+        hdmi_force_hotplug=1
+        dtparam=i2c_arm=on
+        enable_uart=1
+        dtoverlay=piscreen,speed=18000000,rotate=270
+    tags: config
+
+  # =========================================================
+  # PHASE 4: App files and credentials
+  # =========================================================
+
+  - name: Create token cache directory
+    file:
+      path: /srv
+      state: directory
+      owner: "{{ ansible_user }}"
+      group: "{{ ansible_user }}"
+      mode: '0700'
+    tags: [config, deploy]
+
+  - name: Generate self-signed SSL cert (SAN covers both hotspot IP and mDNS hostname)
+    command: >
+      openssl req -x509 -newkey rsa:2048
+      -keyout /etc/ssl/spotify-display.key
+      -out /etc/ssl/spotify-display.crt
+      -days 3650 -nodes
+      -subj "/CN=spotifydisplay.local"
+      -addext "subjectAltName=IP:192.168.4.1,DNS:spotifydisplay.local"
+    args:
+      creates: /etc/ssl/spotify-display.crt
+    tags: config
+
+  - name: Write spotify-display environment file
+    copy:
+      dest: /etc/spotify_display.env
+      content: |
+        CLIENT_ID={{ spotify_client_id }}
+        CLIENT_SECRET={{ spotify_client_secret }}
+        REDIRECT_URI=https://spotifydisplay.local/callback
+        PORTAL_PIN={{ portal_pin }}
+      owner: root
+      group: root
+      mode: '0600'
+    tags: config
+
+  - name: Copy Spotify display script
+    copy:
+      src: files/spotify_display.py
+      dest: "{{ app_dir }}/spotify_display.py"
+      owner: "{{ ansible_user }}"
+      group: "{{ ansible_user }}"
+      mode: '0755'
+    tags: deploy
+
+  - name: Copy setup display script
+    copy:
+      src: files/setup_display.py
+      dest: "{{ app_dir }}/setup_display.py"
+      owner: "{{ ansible_user }}"
+      group: "{{ ansible_user }}"
+      mode: '0755'
+    tags: deploy
+
+  - name: Copy setup portal app
+    copy:
+      src: files/setup_portal.py
+      dest: "{{ app_dir }}/setup_portal.py"
+      owner: "{{ ansible_user }}"
+      group: "{{ ansible_user }}"
+      mode: '0755'
+    tags: deploy
+
+  - name: Copy management portal app
+    copy:
+      src: files/manage_portal.py
+      dest: "{{ app_dir }}/manage_portal.py"
+      owner: "{{ ansible_user }}"
+      group: "{{ ansible_user }}"
+      mode: '0755'
+    tags: deploy
+
+  # =========================================================
+  # PHASE 5: systemd services
+  # =========================================================
+
+  - name: Install spotify-display service
+    template:
+      src: templates/spotify-display-service.j2
+      dest: /etc/systemd/system/spotify-display.service
+    tags: services
+
+  - name: Install qr-display service
+    copy:
+      dest: /etc/systemd/system/qr-display.service
+      content: |
+        [Unit]
+        Description=Animated Setup Display
+        After=network.target
+        ConditionPathExists=!/etc/spotify_display_configured
+
+        [Service]
+        Type=simple
+        ExecStart=/usr/bin/python3 {{ app_dir }}/setup_display.py
+        Restart=on-failure
+        RestartSec=3
+        User={{ ansible_user }}
+
+        [Install]
+        WantedBy=multi-user.target
+    tags: services
+
+  - name: Install setup-portal service
+    copy:
+      dest: /etc/systemd/system/setup-portal.service
+      content: |
+        [Unit]
+        Description=WiFi Setup Portal
+        After=NetworkManager.service
+        Wants=NetworkManager.service
+        ConditionPathExists=!/etc/spotify_display_configured
+
+        [Service]
+        ExecStart=/usr/bin/python3 {{ app_dir }}/setup_portal.py
+        Restart=on-failure
+        RestartSec=5
+        User=root
+        Environment=CLIENT_ID={{ spotify_client_id }}
+        Environment=CLIENT_SECRET={{ spotify_client_secret }}
+
+        [Install]
+        WantedBy=multi-user.target
+    tags: services
+
+  - name: Install management portal service
+    copy:
+      dest: /etc/systemd/system/manage-portal.service
+      content: |
+        [Unit]
+        Description=Spotify Display Management Portal
+        After=network.target
+        ConditionPathExists=/etc/spotify_display_configured
+
+        [Service]
+        ExecStart=/usr/bin/python3 {{ app_dir }}/manage_portal.py
+        Restart=on-failure
+        RestartSec=5
+        User=root
+        EnvironmentFile=/etc/spotify_display.env
+
+        [Install]
+        WantedBy=multi-user.target
+    tags: services
+
+  - name: Install hotspot service
+    copy:
+      dest: /etc/systemd/system/spotify-hotspot.service
+      content: |
+        [Unit]
+        Description=Spotify Display WiFi Hotspot
+        After=NetworkManager.service
+        Wants=NetworkManager.service
+        ConditionPathExists=!/etc/spotify_display_configured
+
+        [Service]
+        Type=oneshot
+        ExecStartPre=/bin/sh -c 'until systemctl is-active NetworkManager >/dev/null 2>&1; do sleep 1; done'
+        ExecStart=/usr/bin/nmcli con up SpotifyDisplay-hotspot
+        ExecStop=/usr/bin/nmcli con down SpotifyDisplay-hotspot
+        RemainAfterExit=yes
+
+        [Install]
+        WantedBy=multi-user.target
+    tags: services
+
+  - name: Reload systemd and enable services
+    systemd:
+      name: "{{ item }}"
+      daemon_reload: yes
+      enabled: yes
+    loop:
+      - spotify-display
+      - manage-portal
+      - qr-display
+      - setup-portal
+      - spotify-hotspot
+    tags: services
+
+  # =========================================================
+  # PHASE 6: WiFi hotspot profile
+  # =========================================================
+
+  - name: Create hotspot NetworkManager connection
+    command: >
+      nmcli con add
+      type wifi
+      ifname wlan0
+      con-name SpotifyDisplay-hotspot
+      ssid SpotifyDisplay
+      802-11-wireless.mode ap
+      802-11-wireless.band bg
+      ipv4.method shared
+      ipv4.addresses 192.168.4.1/24
+      wifi-sec.key-mgmt wpa-psk
+      wifi-sec.psk setup1234
+      connection.autoconnect no
+    args:
+      creates: /etc/NetworkManager/system-connections/SpotifyDisplay-hotspot.nmconnection
+    tags: config
+
+  # =========================================================
+  # DONE
+  # =========================================================
+
+  - name: Reboot system
+    reboot:
+    tags: [config, deploy, services]

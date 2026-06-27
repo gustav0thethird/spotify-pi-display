@@ -1,0 +1,13 @@
+# Boot config path: /boot/firmware/config.txt on Bookworm, /boot/config.txt on Bullseye
+boot_config: /boot/firmware/config.txt
+
+app_dir: /home/YOUR_USERNAME/spotify-display
+
+# Your Spotify app credentials — users never see these, they just log in with their account.
+# Create the app at https://developer.spotify.com/dashboard
+# Add http://192.168.4.1/callback as a Redirect URI on the app.
+spotify_client_id: "YOUR_SPOTIFY_CLIENT_ID"
+spotify_client_secret: "YOUR_SPOTIFY_CLIENT_SECRET"
+
+# PIN to access the management portal — change this before deploying
+portal_pin: "YOUR_PORTAL_PIN"

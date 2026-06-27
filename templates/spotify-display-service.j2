@@ -1,0 +1,18 @@
+[Unit]
+Description=Spotify TFT Display
+After=network.target
+ConditionPathExists=/etc/spotify_display_configured
+
+[Service]
+Type=notify
+ExecStartPre=/bin/sh -c 'until ip route show default 2>/dev/null | grep -q default; do sleep 2; done'
+ExecStart=/usr/bin/python3 {{ app_dir }}/spotify_display.py
+WorkingDirectory={{ app_dir }}
+Restart=always
+RestartSec=5
+User={{ ansible_user }}
+EnvironmentFile=/etc/spotify_display.env
+WatchdogSec=30
+
+[Install]
+WantedBy=multi-user.target

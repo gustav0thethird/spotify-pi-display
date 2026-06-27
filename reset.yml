@@ -1,0 +1,31 @@
+- name: Reset Spotify Display to post-install state
+  hosts: raspberrypi
+  become: yes
+
+  tasks:
+
+  - name: Remove configured flag
+    file:
+      path: /etc/spotify_display_configured
+      state: absent
+
+  - name: Remove Spotify token cache
+    file:
+      path: /srv/.spotify_cache
+      state: absent
+
+  - name: Remove saved home WiFi connection
+    command: nmcli con delete home-wifi
+    ignore_errors: yes
+
+  - name: Re-enable setup services
+    systemd:
+      name: "{{ item }}"
+      enabled: yes
+    loop:
+      - qr-display
+      - setup-portal
+      - spotify-hotspot
+
+  - name: Reboot
+    reboot:
