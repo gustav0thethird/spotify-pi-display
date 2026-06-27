@@ -6,6 +6,11 @@ Deployed via Ansible - flash an SD card, fill in your credentials, run the playb
 
 ---
 
+<p align="center">
+<img src="https://github.com/user-attachments/assets/72b68a01-391b-47c1-a21d-d362d126a549" alt="spotify-pi-display" width="600">
+</p>
+
+---
 ## Hardware
 
 - Raspberry Pi (tested on Raspberry Pi Zero 2 WH) - [Amazon](https://amzn.eu/d/05L8Rk97)
