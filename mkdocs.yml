@@ -1,0 +1,8 @@
+site_name: spotify-pi-display
+site_description: Source of truth. Mirrored out to github.com/gustav0thethird/spotify-pi-display.
+
+plugins:
+  - techdocs-core
+
+nav:
+  - Home: index.md
