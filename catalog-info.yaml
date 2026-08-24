@@ -2,12 +2,19 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: spotify-pi-display
-  description: Source of truth. Mirrored out to github.com/gustav0thethird/spotify-pi-display.
+  description: Raspberry Pi Spotify now-playing display
   annotations:
-    # Tells TechDocs the docs live in this repo, built from mkdocs.yml.
     backstage.io/techdocs-ref: dir:.
     gitlab.com/project-slug: yditj/projects/apps/spotify-pi-display
+  links:
+    - url: https://github.com/gustav0thethird/spotify-pi-display
+      title: GitHub
+      icon: github
   tags:
+    - python
+    - raspberrypi
+    - spotify
+    - hardware
     - apps
 spec:
   type: service
