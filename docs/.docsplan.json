@@ -1,0 +1,73 @@
+{
+  "pages": [
+    {
+      "path": "index.md",
+      "title": "Overview",
+      "globs": [
+        "README.md",
+        "catalog-info.yaml"
+      ],
+      "summary": "An introduction to the Spotify Display project, its purpose, and features."
+    },
+    {
+      "path": "hardware.md",
+      "title": "Hardware Requirements",
+      "globs": [
+        "README.md"
+      ],
+      "summary": "Details on the hardware components needed to set up the Spotify Display."
+    },
+    {
+      "path": "setup.md",
+      "title": "First-time Setup",
+      "globs": [
+        "README.md",
+        "files/setup_portal.py"
+      ],
+      "summary": "Instructions for the initial setup of the Raspberry Pi and connecting to WiFi."
+    },
+    {
+      "path": "configuration.md",
+      "title": "Configuration",
+      "globs": [
+        "group_vars/all.yml",
+        "inventory.ini"
+      ],
+      "summary": "Configuration details including environment variables and inventory setup."
+    },
+    {
+      "path": "usage.md",
+      "title": "Usage",
+      "globs": [
+        "README.md",
+        "files/manage_portal.py"
+      ],
+      "summary": "How to use the management portal and interact with the Spotify Display."
+    },
+    {
+      "path": "deployment.md",
+      "title": "Deployment",
+      "globs": [
+        "playbook.yml",
+        "README.md"
+      ],
+      "summary": "Instructions for deploying the Spotify Display using Ansible."
+    },
+    {
+      "path": "display_states.md",
+      "title": "Display States",
+      "globs": [
+        "README.md"
+      ],
+      "summary": "Overview of the different display states and their meanings."
+    },
+    {
+      "path": "troubleshooting.md",
+      "title": "Troubleshooting",
+      "globs": [
+        "README.md"
+      ],
+      "summary": "Common issues and solutions related to the Spotify Display setup."
+    }
+  ]
+}

@@ -1,9 +1,13 @@
 site_name: spotify-pi-display
 site_description: Raspberry Pi Spotify now-playing display
-
 plugins:
-  - techdocs-core
-
+- techdocs-core
 nav:
-  - Home: index.md
-  - Readme: readme.md
+- Overview: index.md
+- Hardware Requirements: hardware.md
+- First-time Setup: setup.md
+- Configuration: configuration.md
+- Usage: usage.md
+- Deployment: deployment.md
+- Display States: display_states.md
+- Troubleshooting: troubleshooting.md

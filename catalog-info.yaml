@@ -2,20 +2,21 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: spotify-pi-display
-  description: Raspberry Pi Spotify now-playing display
+  description: A Raspberry Pi project displaying Spotify tracks on a TFT screen with
+    a customizable interface.
   annotations:
     backstage.io/techdocs-ref: dir:.
     gitlab.com/project-slug: yditj/projects/apps/spotify-pi-display
   links:
-    - url: https://github.com/gustav0thethird/spotify-pi-display
-      title: GitHub
-      icon: github
+  - url: https://github.com/gustav0thethird/spotify-pi-display
+    title: GitHub
+    icon: github
   tags:
-    - python
-    - raspberrypi
-    - spotify
-    - hardware
-    - apps
+  - raspberry-pi
+  - spotify
+  - display
+  - ansible
+  - tft-screen
 spec:
   type: service
   lifecycle: production
